@@ -1,8 +1,9 @@
 import geohash
-import json
-from osgeo import gdal
+import pygtrie
+import time
 
 from rainbow.src.vector import wktBoundBox, Polygon, createTransformer, Point, MultiPoint
+from .trie import Trie
 
 precision_size = {'1': [500.94e4, 499.26e4],
                   '2': [125.23e4, 624.1e3],
@@ -18,9 +19,18 @@ precision_size = {'1': [500.94e4, 499.26e4],
                   '12': [0.037, 0.019]
                   }
 
-def bbox_query(extent, geohash_list, precision):
+def bbox_query(extent, geohash_list, precision, query='builtin'):
     """Method to query a list of geohashes from an input extent (bounding box query)"""
     #extent format (xmin, xmax, ymin, ymax)
+
+    def _prefix_query(geohash_list, prefix, query):
+        if query == 'builtin':
+            return query_builtin(geohash_list, prefix)
+        elif query == 'trie':
+            return query_trie(geohash_list, prefix)
+        elif query == 'gtrie':
+            return query_pygtrie(geohash_list, prefix)
+
     tl_hash = geohash.encode(extent[3], extent[0], precision=precision)
     tr_hash = geohash.encode(extent[3], extent[1], precision=precision)
     br_hash = geohash.encode(extent[2], extent[1], precision=precision)
@@ -28,22 +38,20 @@ def bbox_query(extent, geohash_list, precision):
 
     common_hash = commonprefix([tl_hash, tr_hash, br_hash, bl_hash])
 
-    intersecting_hashes = [x for x in geohash_list if x.startswith(common_hash)]
+    intersecting_hashes = _prefix_query(geohash_list, common_hash, query)
+    print(len(intersecting_hashes))
     centroids = [geohash.decode(x)[::-1] for x in intersecting_hashes]
 
     xspace = x_spacing(centroids)
     yspace = y_spacing(centroids)
 
     valid_list = []
-    # centroid_list = []
 
     for idx, hash in enumerate(intersecting_hashes):
         centroid = centroids[idx]
         if centroid[0] < extent[1]+xspace*0.5 and centroid[0] > extent[0]-xspace*0.5 and centroid[1] < extent[3]+yspace*0.5 and centroid[1] > extent[2]-yspace*0.5:
             valid_list.append(hash)
-            # centroid_list.append(centroid)
     return valid_list
-    # return centroid_list
 
 def y_spacing(centroids):
     """Row length is unknown, need to iterate through each row until we get to the next column"""
@@ -77,13 +85,6 @@ def extent_overlap(extent, precision):
     jac_index = decoded_poly.Intersection(original_poly.geom).Area() / decoded_poly.Union(original_poly.geom).Area()
     return jac_index
 
-def hashes_to_multipoint(geohashes):
-    centroids = []
-    for hash in geohashes:
-        centroid = geohash.decode(hash)
-        centroids.append(centroid[::-1])
-    return MultiPoint(centroids)
-
 def commonprefix(m):
     "Given a list of strings, returns the longest common leading component"
     if not m: return ''
@@ -94,56 +95,26 @@ def commonprefix(m):
             return s1[:i]
     return s1
 
+def query_builtin(geohash_list, common_hash):
+    start = time.time()
+    output = [x for x in geohash_list if x.startswith(common_hash)]
+    print ("Query Time: {}".format(time.time()-start))
+    return output
 
-"""ARGS"""
-precision = 12
-"""END ARGS"""
+def query_trie(geohash_list, common_hash):
+    trie = Trie()
+    for hash in geohash_list:
+        trie.add(hash)
+    start = time.time()
+    output = trie.start_with_prefix(common_hash)
+    print ("Query Time: {}".format(time.time()-start))
+    return output
 
-
-geohash_list = []
-transformer = createTransformer(3857, 4326)
-
-ds = gdal.OpenEx('/Users/jeff/Documents/Slingshot/DataSources/DGGS/usa_contiguous_24km/grid.shp')
-lyr = ds.GetLayer()
-for feat in lyr:
-    geom = feat.GetGeometryRef()
-    poly = Polygon(geom)
-    centroid = poly.ReprojectFast(transformer).Centroid().ExportToList()
-    ghash = geohash.encode(centroid[1], centroid[0], precision=12)
-    geohash_list.append(ghash)
-
-d = {
-        "type": "Polygon",
-        "coordinates": [
-          [
-            [
-              -111.3961181640625,
-              42.38505194970683
-            ],
-            [
-              -110.5611572265625,
-              42.38505194970683
-            ],
-            [
-              -110.5611572265625,
-              42.97991089691236
-            ],
-            [
-              -111.3961181640625,
-              42.97991089691236
-            ],
-            [
-              -111.3961181640625,
-              42.38505194970683
-            ]
-          ]
-        ]
-      }
-
-p = Polygon(json.dumps(d))
-print(p.ExportToWkt())
-extent = p.Envelope()
-
-print ("BBOX JACCARD: {}".format(extent_overlap(extent, precision)))
-out_hashes = bbox_query(extent, geohash_list, precision=precision)
-print(hashes_to_multipoint(out_hashes).ExportToWkt())
+def query_pygtrie(geohash_list, common_hash):
+    trie = pygtrie.PrefixSet(geohash_list)
+    for hash in geohash_list:
+        trie.add(hash)
+    start = time.time()
+    output = [''.join(x) for x in list(trie.iter(common_hash))]
+    print("Query Time: {}".format(time.time()-start))
+    return output
