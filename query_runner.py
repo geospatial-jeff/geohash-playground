@@ -3,10 +3,15 @@ import geohash
 import json
 import time
 from tqdm import tqdm
+import sys
+import contextlib
 import pygtrie
+from lexpy.trie import Trie as LexpyTrie
+from lexpy.dawg import DAWG
 
 from rainbow.src.vector import MultiPoint, Polygon, createTransformer
 from src import bbox_query, Trie
+from src.query import get_tree
 
 precision=12
 geohash_list = []
@@ -77,55 +82,64 @@ def compute_stats(time_list):
             'mean': mean}
 
 @timerfunc
-def query_runner(query, tree=None):
-    bbox_query(extent, geohash_list, precision=precision, query=query, tree=tree)
+def query_runner(geohash_list, query_type, tree=None):
+    bbox_query(extent, geohash_list, precision=precision, query_type=query_type, tree=tree)
     return timerfunc
 
+def benchmark_query(geohash_list, query_type, iterations, index=True):
+
+    def _get_tree():
+        if query_type == 'builtin':
+            return None
+        if not index:
+            return get_tree(geohash_list, query_type)
+        return None
+
+    time_list = []
+
+    if index:
+        print("Query Type: {} (index+query)".format(query_type))
+    else:
+        print("Query Type: {} (query)".format(query_type))
+
+    tree = _get_tree()
+    for _ in tqdm(range(iterations), file=sys.stdout):
+        with nostdout():
+            t = query_runner(geohash_list, query_type, tree=tree)
+            time_list.append(t)
+    return compute_stats(time_list)
+
+class DummyFile(object):
+  file = None
+  def __init__(self, file):
+    self.file = file
+
+  def write(self, x):
+    # Avoid print() second call (useless \n)
+    if len(x.rstrip()) > 0:
+        tqdm.write(x, file=self.file)
+
+@contextlib.contextmanager
+def nostdout():
+    save_stdout = sys.stdout
+    sys.stdout = DummyFile(sys.stdout)
+    yield
+    sys.stdout = save_stdout
+
 if __name__ == '__main__':
-    builtin_list = []
-    trie_list = []
-    gtrie_list = []
-    trie_cached_list = []
-    gtrie_cached_list = []
+    iterations = 10
+    benchmark_query(geohash_list, 'builtin', iterations)
 
-    iterations = 100
+    #Index = True >> Benchmark will include indexing.
+    #Index = False >> Benchmark will not include indexing
+    benchmark_query(geohash_list, 'trie', iterations, index=True)
+    benchmark_query(geohash_list, 'trie', iterations, index=False)
 
-    cached_gtrie = pygtrie.PrefixSet(geohash_list)
-    cached_trie = Trie()
-    for hash in geohash_list:
-        cached_trie.add(hash)
+    benchmark_query(geohash_list, 'gtrie', iterations, index=True)
+    benchmark_query(geohash_list, 'gtrie', iterations, index=False)
 
-    for item in tqdm(range(iterations)):
-        t = query_runner('builtin')
-        builtin_list.append(t)
+    benchmark_query(geohash_list, 'lexpy_trie', iterations, index=True)
+    benchmark_query(geohash_list, 'lexpy_trie', iterations, index=False)
 
-    for item in tqdm(range(iterations)):
-        t = query_runner('trie')
-        trie_list.append(t)
-
-    for item in tqdm(range(iterations)):
-        t = query_runner('gtrie')
-        gtrie_list.append(t)
-
-    for item in tqdm(range(iterations)):
-        t = query_runner('trie', tree=cached_trie)
-        trie_cached_list.append(t)
-
-    for item in tqdm(range(iterations)):
-        t = query_runner('gtrie', tree=cached_gtrie)
-        gtrie_cached_list.append(t)
-
-
-
-    print("Number of Iterations: {}".format(iterations))
-    print("Number of GeoHashes: {}".format(iterations))
-
-    print("BuiltIn Query: {}".format(compute_stats(builtin_list)))
-    print("Trie Query (with indexing): {}".format(compute_stats(gtrie_list)))
-    print("Trie Query (without indexing): {}".format(compute_stats(trie_cached_list)))
-    print("GTrie Query (with indexing): {}".format(compute_stats(trie_list)))
-    print("GTrie Query (without indexing): {}".format(compute_stats(gtrie_cached_list)))
-
-    # https: // github.com / aosingh / lexpy
-
-
+    benchmark_query(geohash_list, 'lexpy_dawg', iterations, index=True)
+    benchmark_query(geohash_list, 'lexpy_dawg', iterations, index=False)

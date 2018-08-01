@@ -3,7 +3,9 @@ import pygtrie
 import time
 
 from rainbow.src.vector import wktBoundBox, Polygon, createTransformer, Point, MultiPoint
-from .trie import Trie
+from .trie import Trie as _Trie
+from lexpy.trie import Trie as Lexpy_Trie
+from lexpy.dawg import DAWG
 
 precision_size = {'1': [500.94e4, 499.26e4],
                   '2': [125.23e4, 624.1e3],
@@ -19,17 +21,21 @@ precision_size = {'1': [500.94e4, 499.26e4],
                   '12': [0.037, 0.019]
                   }
 
-def bbox_query(extent, geohash_list, precision, query='builtin', tree=None):
+def bbox_query(extent, geohash_list, precision, query_type='builtin', tree=None):
     """Method to query a list of geohashes from an input extent (bounding box query)"""
     #extent format (xmin, xmax, ymin, ymax)
 
-    def _prefix_query(geohash_list, prefix, query, tree):
-        if query == 'builtin':
-            return query_builtin(geohash_list, prefix)
-        elif query == 'trie':
-            return query_trie(geohash_list, prefix, tree)
-        elif query == 'gtrie':
-            return query_pygtrie(geohash_list, prefix, tree)
+    def _prefix_query(geohash_list, prefix, query_type, tree):
+        if query_type == 'builtin':
+            return Builtin(geohash_list, tree).prefix_query(prefix)
+        elif query_type == 'trie':
+            return Trie(geohash_list, tree).prefix_query(prefix)
+        elif query_type == 'gtrie':
+            return GTrie(geohash_list, tree).prefix_query(prefix)
+        elif query_type == 'lexpy_trie':
+            return LexpyTrie(geohash_list, tree).prefix_query(prefix)
+        elif query_type == 'lexpy_dawg':
+            return LexpyDawg(geohash_list, tree).prefix_query(prefix)
 
     tl_hash = geohash.encode(extent[3], extent[0], precision=precision)
     tr_hash = geohash.encode(extent[3], extent[1], precision=precision)
@@ -38,7 +44,7 @@ def bbox_query(extent, geohash_list, precision, query='builtin', tree=None):
 
     common_hash = commonprefix([tl_hash, tr_hash, br_hash, bl_hash])
 
-    intersecting_hashes = _prefix_query(geohash_list, common_hash, query, tree)
+    intersecting_hashes = _prefix_query(geohash_list, common_hash, query_type, tree)
     centroids = [geohash.decode(x)[::-1] for x in intersecting_hashes]
 
     xspace = x_spacing(centroids)
@@ -94,50 +100,107 @@ def commonprefix(m):
             return s1[:i]
     return s1
 
-def query_builtin(geohash_list, common_hash):
-    # start = time.time()
-    output = [x for x in geohash_list if x.startswith(common_hash)]
-    # print ("Query Time: {}".format(time.time()-start))
-    return output
 
-def query_trie(geohash_list, common_hash, tree=None):
+"""--------------------------- BENCHMARKING ------------------------------"""
 
-    def _cached_tree(tree, geohash_list):
+def build_lexpy_dawg(geohash_list):
+    dawg = DAWG()
+    dawg.add_all(geohash_list)
+    dawg.reduce()
+    return dawg
+
+def build_lexpy_trie(geohash_list):
+    trie = Lexpy_Trie()
+    trie.add_all(geohash_list)
+    return trie
+
+def build_pygtrie(geohash_list):
+    trie = pygtrie.PrefixSet(geohash_list)
+    for hash in geohash_list:
+        trie.add(hash)
+    return trie
+
+def build_trie(geohash_list):
+    trie = _Trie()
+    for hash in geohash_list:
+        trie.add(hash)
+    return trie
+
+def get_tree(geohash_list, query):
+    """Build a tree based on query type"""
+    if query == 'builtin':
+        return geohash_list
+    elif query == 'trie':
+        return build_trie(geohash_list)
+    elif query == 'gtrie':
+        return build_pygtrie(geohash_list)
+    elif query == 'lexpy_trie':
+        return build_lexpy_trie(geohash_list)
+    elif query == 'lexpy_dawg':
+        return build_lexpy_dawg(geohash_list)
+
+def _choose_tree(geohash_list, query, tree):
+    """Select cached tree or build on the fly"""
+    if tree:
+        return tree
+    else:
+        return get_tree(geohash_list, query)
+
+
+class BaseIndex():
+
+    def __init__(self, geohash_list, query, tree=None):
+        self.query = query
+        self.geohash_list = geohash_list
+        self.tree = self._set_tree(tree)
+
+    def _set_tree(self, tree):
         if tree:
             return tree
         else:
-            trie = Trie()
-            for hash in geohash_list:
-                trie.add(hash)
-            return trie
+            return get_tree(self.geohash_list, self.query)
 
-    trie = _cached_tree(tree, geohash_list)
-    for hash in geohash_list:
-        trie.add(hash)
-    # start = time.time()
-    output = trie.start_with_prefix(common_hash)
-    # print ("Query Time: {}".format(time.time()-start))
-    return output
+class LexpyDawg(BaseIndex):
 
-def query_pygtrie(geohash_list, common_hash, tree=None):
+    def __init__(self, geohash_list, tree=None):
+        BaseIndex.__init__(self, geohash_list, 'lexpy_dawg', tree=tree)
 
-    def _cached_tree(tree, geohash_list):
-        if tree:
-            return tree
-        else:
-            return pygtrie.PrefixSet(geohash_list)
+    def prefix_query(self, prefix):
+        output = self.tree.search_with_prefix(prefix)
+        return output
 
-    trie = _cached_tree(tree, geohash_list)
-    for hash in geohash_list:
-        trie.add(hash)
-    # start = time.time()
-    output = [''.join(x) for x in list(trie.iter(common_hash))]
-    # print("Query Time: {}".format(time.time()-start))
-    return output
+class LexpyTrie(BaseIndex):
 
+    def __init__(self, geohash_list, tree=None):
+        BaseIndex.__init__(self, geohash_list, 'lexpy_trie', tree=tree)
 
+    def prefix_query(self, prefix):
+        output = self.tree.search_with_prefix(prefix)
+        return output
 
-# def query_dawg(geohash_list, common_hash):
-#     trie = Trie()
-#     for hash in geohash_list:
+class GTrie(BaseIndex):
 
+    def __init__(self, geohash_list, tree=None):
+        BaseIndex.__init__(self, geohash_list, 'gtrie', tree=tree)
+
+    def prefix_query(self, prefix):
+        output = [''.join(x) for x in list(self.tree.iter(prefix))]
+        return output
+
+class Trie(BaseIndex):
+
+    def __init__(self, geohash_list, tree=None):
+        BaseIndex.__init__(self, geohash_list, 'trie', tree=tree)
+
+    def prefix_query(self, prefix):
+        output = self.tree.start_with_prefix(prefix)
+        return output
+
+class Builtin(BaseIndex):
+
+    def __init__(self, geohash_list, tree=None):
+        BaseIndex.__init__(self, geohash_list, 'builtin', tree=tree)
+
+    def prefix_query(self, prefix):
+        output = [x for x in self.tree if x.startswith(prefix)]
+        return output
