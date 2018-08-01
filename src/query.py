@@ -19,17 +19,17 @@ precision_size = {'1': [500.94e4, 499.26e4],
                   '12': [0.037, 0.019]
                   }
 
-def bbox_query(extent, geohash_list, precision, query='builtin'):
+def bbox_query(extent, geohash_list, precision, query='builtin', tree=None):
     """Method to query a list of geohashes from an input extent (bounding box query)"""
     #extent format (xmin, xmax, ymin, ymax)
 
-    def _prefix_query(geohash_list, prefix, query):
+    def _prefix_query(geohash_list, prefix, query, tree):
         if query == 'builtin':
             return query_builtin(geohash_list, prefix)
         elif query == 'trie':
-            return query_trie(geohash_list, prefix)
+            return query_trie(geohash_list, prefix, tree)
         elif query == 'gtrie':
-            return query_pygtrie(geohash_list, prefix)
+            return query_pygtrie(geohash_list, prefix, tree)
 
     tl_hash = geohash.encode(extent[3], extent[0], precision=precision)
     tr_hash = geohash.encode(extent[3], extent[1], precision=precision)
@@ -38,8 +38,7 @@ def bbox_query(extent, geohash_list, precision, query='builtin'):
 
     common_hash = commonprefix([tl_hash, tr_hash, br_hash, bl_hash])
 
-    intersecting_hashes = _prefix_query(geohash_list, common_hash, query)
-    print(len(intersecting_hashes))
+    intersecting_hashes = _prefix_query(geohash_list, common_hash, query, tree)
     centroids = [geohash.decode(x)[::-1] for x in intersecting_hashes]
 
     xspace = x_spacing(centroids)
@@ -96,25 +95,49 @@ def commonprefix(m):
     return s1
 
 def query_builtin(geohash_list, common_hash):
-    start = time.time()
+    # start = time.time()
     output = [x for x in geohash_list if x.startswith(common_hash)]
-    print ("Query Time: {}".format(time.time()-start))
+    # print ("Query Time: {}".format(time.time()-start))
     return output
 
-def query_trie(geohash_list, common_hash):
-    trie = Trie()
+def query_trie(geohash_list, common_hash, tree=None):
+
+    def _cached_tree(tree, geohash_list):
+        if tree:
+            return tree
+        else:
+            trie = Trie()
+            for hash in geohash_list:
+                trie.add(hash)
+            return trie
+
+    trie = _cached_tree(tree, geohash_list)
     for hash in geohash_list:
         trie.add(hash)
-    start = time.time()
+    # start = time.time()
     output = trie.start_with_prefix(common_hash)
-    print ("Query Time: {}".format(time.time()-start))
+    # print ("Query Time: {}".format(time.time()-start))
     return output
 
-def query_pygtrie(geohash_list, common_hash):
-    trie = pygtrie.PrefixSet(geohash_list)
+def query_pygtrie(geohash_list, common_hash, tree=None):
+
+    def _cached_tree(tree, geohash_list):
+        if tree:
+            return tree
+        else:
+            return pygtrie.PrefixSet(geohash_list)
+
+    trie = _cached_tree(tree, geohash_list)
     for hash in geohash_list:
         trie.add(hash)
-    start = time.time()
+    # start = time.time()
     output = [''.join(x) for x in list(trie.iter(common_hash))]
-    print("Query Time: {}".format(time.time()-start))
+    # print("Query Time: {}".format(time.time()-start))
     return output
+
+
+
+# def query_dawg(geohash_list, common_hash):
+#     trie = Trie()
+#     for hash in geohash_list:
+

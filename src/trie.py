@@ -121,42 +121,15 @@ class Trie:
         return current_node.data
 
 
-if __name__ == '__main__':
-    """ Example use """
-    trie = Trie()
-    words = 'hello goodbye help gerald gold tea ted team to too tom stan standard money'
-    for word in words.split():
-        trie.add(word)
-    print(
-    "'goodbye' in trie: ", trie.has_word('goodbye'))
-    print(
-    trie.start_with_prefix('g'))
-    print(
-    trie.start_with_prefix('to'))
-
-    geohash_list = []
-    transformer = createTransformer(3857, 4326)
-    precision = 12
-
-    ds = gdal.OpenEx('/Users/jeff/Documents/Slingshot/DataSources/DGGS/usa_contiguous_24km/grid.shp')
-    lyr = ds.GetLayer()
-    for feat in lyr:
-        geom = feat.GetGeometryRef()
-        poly = Polygon(geom)
-        centroid = poly.ReprojectFast(transformer).Centroid().ExportToList()
-        ghash = geohash.encode(centroid[1], centroid[0], precision=precision)
-        geohash_list.append(ghash)
-
-    monster_list = geohash_list + geohash_list + geohash_list + geohash_list + geohash_list + geohash_list
-
-    print(len(monster_list))
-
-    for item in geohash_list:
-        trie.add(item)
-
-    import time
-
-    start = time.time()
-    output = trie.start_with_prefix('cf')
-    print("Query Time: {}".format(time.time()-start))
-    print(len(output))
+# if __name__ == '__main__':
+#     """ Example use """
+#     trie = Trie()
+#     words = 'hello goodbye help gerald gold tea ted team to too tom stan standard money'
+#     for word in words.split():
+#         trie.add(word)
+#     print(
+#     "'goodbye' in trie: ", trie.has_word('goodbye'))
+#     print(
+#     trie.start_with_prefix('g'))
+#     print(
+#     trie.start_with_prefix('to'))
