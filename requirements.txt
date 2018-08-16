@@ -1,0 +1,10 @@
+
+DAWG==0.7.8
+DAWG-Python==0.7.2
+geojson==2.4.0
+lexpy==0.9.3
+matplotlib==2.1.2
+pandas==0.23.3
+pygtrie==2.2
+python-geohash==0.8.5
+tqdm==4.23.4

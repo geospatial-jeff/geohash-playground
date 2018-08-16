@@ -1,9 +1,3 @@
-import geohash
-from osgeo import gdal
-
-
-from rainbow.src.vector import Polygon, createTransformer
-
 
 class Node:
     def __init__(self, label=None, data=None):
