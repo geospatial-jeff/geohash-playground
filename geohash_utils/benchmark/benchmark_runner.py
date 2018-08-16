@@ -8,15 +8,15 @@ from shapely.geometry import shape
 
 from geohash_utils.benchmark import index_query_benchmark, bbox_query_benchmark, random_hashes, compute_stats
 
-args = {
-    "query_iterations": 30,
-    "index_iterations": 1,
-    "hash_precision": 3,
-    "hash_count": 10,
-    "geohash_extent": (-112, -110, 41, 43),
-    "query_extent": (-111.4, -110.5, 42, 42.9),
-    "outfolder": '/Users/jeff/Documents/PersonalRepos/geohash-playground/benchmark_output'
-}
+# args = {
+#     "query_iterations": 30,
+#     "index_iterations": 1,
+#     "hash_precision": 3,
+#     "hash_count": 10,
+#     "geohash_extent": (-112, -110, 41, 43),
+#     "query_extent": (-111.4, -110.5, 42, 42.9),
+#     "outfolder": '/Users/jeff/Documents/PersonalRepos/geohash-playground/benchmark_output'
+# }
 
 class Polygon():
     """
@@ -37,12 +37,11 @@ class FullPaths(argparse.Action):
         setattr(namespace, self.dest, os.path.abspath(os.path.expanduser(values)))
 
 def cli():
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('json_args', help="JSON file with input arguments",
-    #                     action=FullPaths)
-    # args = parser.parse_args()
-    # d = json.loads(open(args.json_args, 'r').read())
-    d = args
+    parser = argparse.ArgumentParser()
+    parser.add_argument('json_args', help="JSON file with input arguments",
+                        action=FullPaths)
+    args = parser.parse_args()
+    d = json.loads(open(args.json_args, 'r').read())
 
     query_poly = [[[d['query_extent'][0], d['query_extent'][3]],
                    [d['query_extent'][1], d['query_extent'][3]],
